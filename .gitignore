@@ -1,0 +1,18 @@
+# Data and models (large / regenerable). .gitkeep files preserve the folders.
+data/raw/*
+data/processed/*
+models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
+
+# Python / environment
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Secrets
+kaggle.json
+.env
