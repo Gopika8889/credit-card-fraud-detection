@@ -1,6 +1,7 @@
 """Baseline model training with stratified cross-validation."""
 
 import time
+from pathlib import Path
 from typing import Dict, Sequence, Tuple
 
 import joblib
@@ -11,6 +12,7 @@ from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
+from sklearn.pipeline import Pipeline as SkPipeline
 
 from src.config import MODELS_DIR, N_SPLITS, RANDOM_STATE
 from src.data_loader import load_data
@@ -20,6 +22,7 @@ from src.preprocessing import build_preprocessor, remove_duplicates
 from src.split import stratified_split, summarize_split
 
 MODEL_NAMES = ("logreg", "rf")
+PREPROCESS_STEP_NAMES = ("features", "columns")
 
 
 def get_classifier(
@@ -58,7 +61,11 @@ def get_classifier(
 
 
 def build_pipeline(model_name: str, strategy: str) -> ImbPipeline:
-    """Assemble preprocess -> (resampler) -> classifier.
+    """Assemble preprocessing -> (resampler) -> classifier.
+
+    imblearn's Pipeline cannot contain a nested Pipeline, so the
+    preprocessor's steps ("features", "columns") are placed directly in the
+    pipeline, followed by the optional sampler and the classifier.
 
     Args:
         model_name: ``"logreg"`` or ``"rf"``.
@@ -67,7 +74,7 @@ def build_pipeline(model_name: str, strategy: str) -> ImbPipeline:
     Returns:
         An unfitted imblearn Pipeline.
     """
-    steps = [("preprocess", build_preprocessor())]
+    steps = list(build_preprocessor().steps)
     steps += get_sampling_steps(strategy)
     steps.append(
         ("clf", get_classifier(model_name, uses_class_weight(strategy)))
@@ -160,7 +167,7 @@ def fit_and_save_best(
     """Fit the chosen pipeline on ALL training data and save artifacts.
 
     Saves ``best_baseline.joblib`` (full pipeline) and
-    ``preprocessor.joblib`` (the fitted preprocessing step, which was fit on
+    ``preprocessor.joblib`` (the already-fitted preprocessing steps, fit on
     training data only). Loading them requires ``src`` to be importable.
 
     Args:
@@ -175,11 +182,16 @@ def fit_and_save_best(
     model_name, strategy = best_label.split(" + ")
     pipeline = build_pipeline(model_name, strategy)
     pipeline.fit(X_train, y_train)
+
+    # Reuse the fitted step objects, so no refitting and no leakage.
+    preprocessor = SkPipeline(
+        [(name, pipeline.named_steps[name]) for name in PREPROCESS_STEP_NAMES]
+    )
+
+    models_dir = Path(models_dir)
     models_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, models_dir / "best_baseline.joblib")
-    joblib.dump(
-        pipeline.named_steps["preprocess"], models_dir / "preprocessor.joblib"
-    )
+    joblib.dump(preprocessor, models_dir / "preprocessor.joblib")
     return pipeline
 
 
